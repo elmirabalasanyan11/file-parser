@@ -7,12 +7,11 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Log;
+use Maatwebsite\Excel\Exceptions\NoTypeDetectedException;
+use Maatwebsite\Excel\Facades\Excel;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
-use Maatwebsite\Excel\Exceptions\NoTypeDetectedException;
-use Maatwebsite\Excel\Facades\Excel;
 
 class ProcessExcelJob implements ShouldQueue
 {
@@ -31,41 +30,39 @@ class ProcessExcelJob implements ShouldQueue
         $progressKey = 'excel_processing_' . uniqid();
         Redis::set($progressKey, 0);
 
-        Log::info('ProcessExcelJob started', ['filePath' => $this->filePath]);
-
         if (!file_exists($this->filePath)) {
-            $error = "Файл не найден: {$this->filePath}";
-            Log::error($error);
-            throw new \Exception($error);
+            throw new \Exception("Файл не найден: $this->filePath");
         }
 
         try {
-            Log::info('Начинаем чтение файла', ['filePath' => $this->filePath]);
             $rows = Excel::toArray([], $this->filePath, null, \Maatwebsite\Excel\Excel::XLSX)[0];
         } catch (NoTypeDetectedException $e) {
-            $error = "Не удалось определить тип файла. Убедитесь, что файл имеет расширение .xlsx или укажите тип файла явно.";
-            Log::error($error, ['exception' => $e]);
-            throw new \Exception($error);
+            throw new \Exception("Не удалось определить тип файла. Убедитесь, что файл имеет расширение .xlsx или укажите тип файла явно.");
         }
 
         array_shift($rows);
-        Log::info('Файл успешно прочитан', ['totalRows' => count($rows)]);
 
         foreach (array_chunk($rows, 1000) as $chunkIndex => $chunk) {
-            Log::info('Обрабатываем пачку данных', ['chunkIndex' => $chunkIndex, 'chunkSize' => count($chunk)]);
+            foreach ($chunk as $row) {
+                $lineNumber = "$row[0] $row[1]";
 
-            foreach ($chunk as $line => $row) {
-                $lineNumber = $chunkIndex * 1000 + $line + 2;
-
-                $validation = Validator::make($row, [
-                    '0' => 'required|integer|min:1',
-                    '1' => 'required|regex:/^[a-zA-Z ]+$/',
-                    '2' => 'required|date_format:d.m.Y',
+                $validation = Validator::make([
+                    'id' => $row[0] ?? null,
+                    'name' => $row[1] ?? null,
+                    'date' => $row[2] ?? null,
+                ], [
+                    'id' => 'required|integer|min:1',
+                    'name' => 'required|regex:/^[a-zA-Z ]+$/',
+                    'date' => 'required|date_format:d.m.Y',
                 ]);
 
                 if ($validation->fails()) {
                     $errors[] = "$lineNumber - " . implode(', ', $validation->errors()->all());
-                    Log::warning('Ошибка валидации', ['lineNumber' => $lineNumber, 'errors' => $validation->errors()->all()]);
+                    continue;
+                }
+
+                if (Row::where('external_id', $row[0])->exists()) {
+                    $errors[] = "$lineNumber - Дубликат id: {$row[0]}";
                     continue;
                 }
 
@@ -77,19 +74,12 @@ class ProcessExcelJob implements ShouldQueue
                     ]);
                 } catch (\Exception $e) {
                     $errors[] = "$lineNumber - Ошибка при сохранении: " . $e->getMessage();
-                    Log::error('Ошибка при сохранении строки', ['lineNumber' => $lineNumber, 'exception' => $e]);
                 }
             }
 
             Redis::incrby($progressKey, count($chunk));
-            Log::info('Прогресс обновлён', ['progressKey' => $progressKey, 'processed' => Redis::get($progressKey)]);
         }
 
-        if (!empty($errors)) {
-            Storage::put('result.txt', implode("\n", $errors));
-            Log::warning('Обработка завершена с ошибками', ['errorsCount' => count($errors)]);
-        }
-
-        Log::info('ProcessExcelJob завершён успешно');
+        Storage::put('result.txt', implode("\n", $errors));
     }
 }
