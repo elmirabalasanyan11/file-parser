@@ -1,0 +1,12 @@
+2403895 William Broy1es - The name field format is invalid.
+4623017 Piper Crowley - The date field must match the format d.m.Y.
+-2084383 Luther Cullen - The id field must be at least 1.
+5121813 Devlin Close - The name field format is invalid.
+970117 Destiny Trujillo. - The name field format is invalid.
+2 003 377 Donnie Moreau - The id field must be an integer.
+2240673 Derick Boswell - The date field must match the format d.m.Y.
+5475795 Marlena McNamara - Дубликат id: 5475795
+468520 Cassidy_Lytle - The name field format is invalid.
+5322778 Brayan Hebert - The date field must match the format d.m.Y.
+5415493 Blanca Vogt - The date field must match the format d.m.Y.
+83059143 Bernadette Whipple - The date field must match the format d.m.Y.
